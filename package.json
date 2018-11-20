@@ -1,0 +1,32 @@
+{
+  "name": "solo-node-api",
+  "version": "0.0.1",
+  "description": "node ffi wrapper for Solo C-level API and simple sample",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/extropiescom/Solo-node-API.git"
+  },
+  "keywords": [
+    "WOOKONG",
+    "Solo",
+    "node",
+    "nodejs"
+  ],
+  "author": "Shangui",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/extropiescom/Solo-node-API/issues"
+  },
+  "homepage": "https://github.com/extropiescom/Solo-node-API#readme",
+  "dependencies": {
+    "ffi": "^2.2.0",
+    "ref": "^1.3.5",
+    "ref-array": "^1.2.0",
+    "ref-struct": "^1.1.0",
+    "sprintf-js": "^1.1.1"
+  }
+}

@@ -158,10 +158,63 @@ const callbackFunc = ffi.Callback("int", [CallbackParam], function (cbparam) {
     console.log(strOutput);
 });
 
+const CheckDeviceState = async () => {
+    let res = 0;
+    let ppPAEWContext = ref.alloc(voidPP);
+    let pnDevCount = ref.alloc("size_t");
+    let pDevInfo = ref.alloc(PAEW_DevInfo);
+    let devInfo = pDevInfo.deref();
+    let lastState = 0;
+    const pin_invalid = 1;
+    const lcd_invalid = 2;
+    console.log("checking device state, please make sure device is unlocked and its screen is showing nothing but WOOKONG");
+    while (true) {
+        try {
+
+            ppPAEWContext = ref.alloc(voidPP);
+
+            res = await PAEW_InitContext(ppPAEWContext, pnDevCount, null, null);
+            if (res != DLLRET.PAEW_RET_SUCCESS) {
+                sleep(500);
+                continue;
+            }
+            res = await PAEW_GetDevInfo(ppPAEWContext.deref(), 0, DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_PIN_STATE + DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_LCD_STATE, pDevInfo);
+
+            if (res != DLLRET.PAEW_RET_SUCCESS) {
+                sleep(500);
+                throw "";
+            }
+
+            if (devInfo.ucPINState != DLLDEVINFO.PINSTATE.PAEW_DEV_INFO_PIN_LOGIN) {
+                if (pin_invalid != lastState) {
+                    lastState = pin_invalid;
+                    console.log(`Device Pin state: ${DLLUTIL.ewallet_pinstate2string(devInfo.ucPINState)}, you should unlock it first`);
+                }
+                sleep(500);
+                throw "";
+            }
+
+            if (devInfo.nLcdState != DLLDEVINFO.LCDSTATE.PAEW_DEV_INFO_LCD_SHOWLOGO && devInfo.nLcdState != DLLDEVINFO.LCDSTATE.PAEW_DEV_INFO_LCD_NULL) {
+                console.log(`lcd_invalid: ${lcd_invalid}, lastState: ${lastState}, devInfo.nLcdState: ${devInfo.nLcdState}`);
+                if (lcd_invalid != lastState) {
+                    lastState = lcd_invalid;
+                    console.log(`Device Lcd state: ${DLLUTIL.ewallet_lcdstate2string(devInfo.nLcdState)}, you should clear it first`);
+                }
+                sleep(500);
+                throw "";
+            }
+            break;
+        } catch (error) {
+            //console.log("err: ", error);
+        } finally {
+            res = await PAEW_FreeContext(ppPAEWContext.deref());
+        }
+    }
+}
+
 
 
 const EOSTXSign = async (
-    szDevName,
     callbackFunc,
     callbackParam,
     derivePath,
@@ -186,41 +239,22 @@ const EOSTXSign = async (
     let res = 0;
 
     try {
-        if (szDevName != undefined) {
-            res = await new Promise((resolve, reject) => {
-                PAEW_InitContextWithDevName.async(
-                    ppPAEWContext,
-                    szDevName,
-                    DLLDEVTYPE.PAEW_DEV_TYPE_HID,
-                    callbackFunc,
-                    callbackParam.ref(),
-                    (err, res) => {
-                        if (res == DLLRET.PAEW_RET_SUCCESS) {
-                            resolve(res);
-                        } else {
-                            reject(res);
-                        }
+        res = await new Promise((resolve, reject) => {
+            PAEW_InitContext.async(
+                ppPAEWContext,
+                pnDevCount,
+                callbackFunc,
+                callbackParam.ref(),
+                (err, res) => {
+                    if (res == DLLRET.PAEW_RET_SUCCESS) {
+                        resolve(res);
+                    } else {
+                        console.log("PAEW_InitContext fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
+                        reject(res);
                     }
-                );
-            });
-        } else {
-            res = await new Promise((resolve, reject) => {
-                PAEW_InitContext.async(
-                    ppPAEWContext,
-                    pnDevCount,
-                    callbackFunc,
-                    callbackParam.ref(),
-                    (err, res) => {
-                        if (res == DLLRET.PAEW_RET_SUCCESS) {
-                            resolve(res);
-                        } else {
-                            reject(res);
-                        }
-                    }
-                );
-            });
-            console.log("PAEW_InitContext, res is:", res)
-        }
+                }
+            );
+        });
 
         res = await new Promise((resolve, reject) => {
             PAEW_GetDevInfo.async(
@@ -237,40 +271,12 @@ const EOSTXSign = async (
                     if (res == DLLRET.PAEW_RET_SUCCESS) {
                         resolve(res);
                     } else {
+                        console.log("PAEW_GetDevInfo fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
                         reject(res);
                     }
                 }
             );
         });
-
-        console.log("PAEW_GetDevInfo, res is:", res)
-        if (
-            devInfo.ucCOSType ==
-            DLLDEVINFO.COSTYPE.PAEW_DEV_INFO_COS_TYPE_DRAGONBALL
-        ) {
-            res = await new Promise((resolve, reject) => {
-                PAEW_GetDevInfo.async(
-                    ppPAEWContext.deref(),
-                    0,
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_PIN_STATE +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_COS_TYPE +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_CHAIN_TYPE +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_SN +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_COS_VERSION +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_LIFECYCLE +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_N_T +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_SESSKEY_HASH,
-                    pDevInfo,
-                    (err, res) => {
-                        if (res == DLLRET.PAEW_RET_SUCCESS) {
-                            resolve(res);
-                        } else {
-                            reject(res);
-                        }
-                    }
-                );
-            });
-        }
 
         res = await new Promise((resolve, reject) => {
             PAEW_DeriveTradeAddress.async(
@@ -283,12 +289,12 @@ const EOSTXSign = async (
                     if (res == DLLRET.PAEW_RET_SUCCESS) {
                         resolve(res);
                     } else {
+                        console.log("PAEW_DeriveTradeAddress fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
                         reject(res);
                     }
                 }
             );
         });
-        console.log("PAEW_DeriveTradeAddress, res is:", res)
 
         res = await new Promise((resolve, reject) => {
             PAEW_GetTradeAddress.async(
@@ -302,17 +308,12 @@ const EOSTXSign = async (
                     if (res == DLLRET.PAEW_RET_SUCCESS) {
                         resolve(res);
                     } else {
-                        console.log("PAEW_GetTradeAddress fails, res is:", res, " , err is:", err)
+                        console.log("PAEW_GetTradeAddress fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
                         reject(res);
                     }
                 }
             );
         });
-
-        console.log("PAEW_GetTradeAddress, res is:", res)
-        console.log("currentTX:", pbCurrentTX);
-        console.log("nCurrentTXLen:", nCurrentTXLen);
-
 
         res = await new Promise((resolve, reject) => {
             PAEW_EOS_TXSign.async(
@@ -324,10 +325,10 @@ const EOSTXSign = async (
                 pnTXSigLen,
                 (err, res) => {
                     if (res == DLLRET.PAEW_RET_SUCCESS) {
-                        console.log("PAEW_EOS_TXSign completed")
+                        console.log("PAEW_EOS_TXSign completed");
                         resolve(res);
                     } else {
-                        console.log("PAEW_EOS_TXSign fails, res is:", res, " , err is:", err)
+                        console.log("PAEW_EOS_TXSign fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
                         reject(res);
                     }
                 }
@@ -340,7 +341,6 @@ const EOSTXSign = async (
             );
         }
 
-
         return {
             result: res,
             payload: signature
@@ -348,6 +348,10 @@ const EOSTXSign = async (
 
     } catch (err) {
         console.log("error catched: ", err);
+        return {
+            result: err,
+            payload: signature
+        };
     } finally {
         res = await new Promise((resolve, reject) => {
             PAEW_FreeContext.async(ppPAEWContext.deref(), (err, res) => {
@@ -358,18 +362,13 @@ const EOSTXSign = async (
                 }
             });
         });
-
-        console.log("PAEW_FreeContext, res is:", res)
     }
 };
 
 const ETHTXSign = async (
-    szDevName,
     callbackFunc,
     callbackParam,
     derivePath,
-    erc20,
-    decimal,
     txData
 ) => {
 
@@ -392,41 +391,22 @@ const ETHTXSign = async (
     let res = 0;
 
     try {
-        if (szDevName != undefined) {
-            res = await new Promise((resolve, reject) => {
-                PAEW_InitContextWithDevName.async(
-                    ppPAEWContext,
-                    szDevName,
-                    DLLDEVTYPE.PAEW_DEV_TYPE_HID,
-                    callbackFunc,
-                    callbackParam.ref(),
-                    (err, res) => {
-                        if (res == DLLRET.PAEW_RET_SUCCESS) {
-                            resolve(res);
-                        } else {
-                            reject(res);
-                        }
+        res = await new Promise((resolve, reject) => {
+            PAEW_InitContext.async(
+                ppPAEWContext,
+                pnDevCount,
+                callbackFunc,
+                callbackParam.ref(),
+                (err, res) => {
+                    if (res == DLLRET.PAEW_RET_SUCCESS) {
+                        resolve(res);
+                    } else {
+                        console.log("PAEW_InitContext fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
+                        reject(res);
                     }
-                );
-            });
-        } else {
-            res = await new Promise((resolve, reject) => {
-                PAEW_InitContext.async(
-                    ppPAEWContext,
-                    pnDevCount,
-                    callbackFunc,
-                    callbackParam.ref(),
-                    (err, res) => {
-                        if (res == DLLRET.PAEW_RET_SUCCESS) {
-                            resolve(res);
-                        } else {
-                            reject(res);
-                        }
-                    }
-                );
-            });
-            console.log("PAEW_InitContext, res is:", res)
-        }
+                }
+            );
+        });
 
         res = await new Promise((resolve, reject) => {
             PAEW_GetDevInfo.async(
@@ -443,40 +423,12 @@ const ETHTXSign = async (
                     if (res == DLLRET.PAEW_RET_SUCCESS) {
                         resolve(res);
                     } else {
+                        console.log("PAEW_GetDevInfo fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
                         reject(res);
                     }
                 }
             );
         });
-
-        console.log("PAEW_GetDevInfo, res is:", res)
-        if (
-            devInfo.ucCOSType ==
-            DLLDEVINFO.COSTYPE.PAEW_DEV_INFO_COS_TYPE_DRAGONBALL
-        ) {
-            res = await new Promise((resolve, reject) => {
-                PAEW_GetDevInfo.async(
-                    ppPAEWContext.deref(),
-                    0,
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_PIN_STATE +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_COS_TYPE +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_CHAIN_TYPE +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_SN +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_COS_VERSION +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_LIFECYCLE +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_N_T +
-                    DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_SESSKEY_HASH,
-                    pDevInfo,
-                    (err, res) => {
-                        if (res == DLLRET.PAEW_RET_SUCCESS) {
-                            resolve(res);
-                        } else {
-                            reject(res);
-                        }
-                    }
-                );
-            });
-        }
 
         res = await new Promise((resolve, reject) => {
             PAEW_DeriveTradeAddress.async(
@@ -489,12 +441,12 @@ const ETHTXSign = async (
                     if (res == DLLRET.PAEW_RET_SUCCESS) {
                         resolve(res);
                     } else {
+                        console.log("PAEW_DeriveTradeAddress fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
                         reject(res);
                     }
                 }
             );
         });
-        console.log("PAEW_DeriveTradeAddress, res is:", res)
 
         res = await new Promise((resolve, reject) => {
             PAEW_GetTradeAddress.async(
@@ -508,16 +460,12 @@ const ETHTXSign = async (
                     if (res == DLLRET.PAEW_RET_SUCCESS) {
                         resolve(res);
                     } else {
-                        console.log("PAEW_GetTradeAddress fails, res is:", res, " , err is:", err)
+                        console.log("PAEW_GetTradeAddress fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
                         reject(res);
                     }
                 }
             );
         });
-
-        console.log("PAEW_GetTradeAddress, res is:", res)
-        console.log("currentTX:", pbCurrentTX);
-        console.log("nCurrentTXLen:", nCurrentTXLen);
 
         res = await new Promise((resolve, reject) => {
             PAEW_ETH_TXSign.async(
@@ -529,10 +477,10 @@ const ETHTXSign = async (
                 pnTXSigLen,
                 (err, res) => {
                     if (res == DLLRET.PAEW_RET_SUCCESS) {
-                        console.log("PAEW_ETH_TXSign completed")
+                        console.log("PAEW_ETH_TXSign completed");
                         resolve(res);
                     } else {
-                        console.log("PAEW_ETH_TXSign fails, res is:", res, " , err is:", err)
+                        console.log("PAEW_ETH_TXSign fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
                         reject(res);
                     }
                 }
@@ -544,18 +492,17 @@ const ETHTXSign = async (
             sign['r'] = '0x' + sign['raw'].slice(0, 64);
             sign['s'] = '0x' + sign['raw'].slice(64, 128);
             sign['v'] = '0x' + sign['raw'].slice(128);
-            console.log("raw sig: ", sign['raw']);
-            console.log("r: ", sign['r']);
-            console.log("s: ", sign['s']);
-            console.log("v: ", sign['v']);
         }
         return {
             result: 0,
             payload: sign
         };
     } catch (err) {
-        //throw { result: err, payload: null };
         console.log("error catched: ", err);
+        return {
+            result: err,
+            payload: sign
+        };
     } finally {
         res = await new Promise((resolve, reject) => {
             PAEW_FreeContext.async(ppPAEWContext.deref(), (err, res) => {
@@ -566,12 +513,159 @@ const ETHTXSign = async (
                 }
             });
         });
+    }
+};
 
-        console.log("PAEW_FreeContext, res is:", res)
+const CYBTXSign = async (
+    callbackFunc,
+    callbackParam,
+    derivePath,
+    txData
+) => {
+    var signature = "";
+    let ppPAEWContext = ref.alloc(voidPP);
+    let pnDevCount = ref.alloc("size_t");
+    let pDevInfo = ref.alloc(PAEW_DevInfo);
+    let devInfo = pDevInfo.deref();
+
+    let puiDerivePath = uint32Array(derivePath);
+    let nDerivePathLen = derivePath.length;
+
+    let pbTradeAddress = new Buffer(DLLCONST.PAEW_COIN_ADDRESS_MAX_LEN);
+    let pnTradeAddressLen = ref.alloc("size_t", DLLCONST.PAEW_COIN_ADDRESS_MAX_LEN);
+
+    let pbCurrentTX = txData;
+    let nCurrentTXLen = pbCurrentTX.length;
+    let pbTXSig = new Buffer(DLLCONST.PAEW_EOS_SIG_MAX_LEN);
+    let pnTXSigLen = ref.alloc("size_t", DLLCONST.PAEW_EOS_SIG_MAX_LEN);
+    let res = 0;
+
+    try {
+        res = await new Promise((resolve, reject) => {
+            PAEW_InitContext.async(
+                ppPAEWContext,
+                pnDevCount,
+                callbackFunc,
+                callbackParam.ref(),
+                (err, res) => {
+                    if (res == DLLRET.PAEW_RET_SUCCESS) {
+                        resolve(res);
+                    } else {
+                        console.log("PAEW_InitContext fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
+                        reject(res);
+                    }
+                }
+            );
+        });
+
+        res = await new Promise((resolve, reject) => {
+            PAEW_GetDevInfo.async(
+                ppPAEWContext.deref(),
+                0,
+                DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_PIN_STATE +
+                DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_COS_TYPE +
+                DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_CHAIN_TYPE +
+                DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_SN +
+                DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_COS_VERSION +
+                DLLDEVINFO.TYPE.PAEW_DEV_INFOTYPE_LIFECYCLE,
+                pDevInfo,
+                (err, res) => {
+                    if (res == DLLRET.PAEW_RET_SUCCESS) {
+                        resolve(res);
+                    } else {
+                        console.log("PAEW_GetDevInfo fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
+                        reject(res);
+                    }
+                }
+            );
+        });
+
+        res = await new Promise((resolve, reject) => {
+            PAEW_DeriveTradeAddress.async(
+                ppPAEWContext.deref(),
+                0,
+                DLLCOINTYPE.PAEW_COIN_TYPE_CYB,
+                puiDerivePath,
+                nDerivePathLen,
+                (err, res) => {
+                    if (res == DLLRET.PAEW_RET_SUCCESS) {
+                        resolve(res);
+                    } else {
+                        console.log("PAEW_DeriveTradeAddress fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
+                        reject(res);
+                    }
+                }
+            );
+        });
+
+        res = await new Promise((resolve, reject) => {
+            PAEW_GetTradeAddress.async(
+                ppPAEWContext.deref(),
+                0,
+                DLLCOINTYPE.PAEW_COIN_TYPE_CYB,
+                0,
+                pbTradeAddress,
+                pnTradeAddressLen,
+                (err, res) => {
+                    if (res == DLLRET.PAEW_RET_SUCCESS) {
+                        resolve(res);
+                    } else {
+                        console.log("PAEW_GetTradeAddress fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
+                        reject(res);
+                    }
+                }
+            );
+        });
+
+        res = await new Promise((resolve, reject) => {
+            PAEW_CYB_TXSign.async(
+                ppPAEWContext.deref(),
+                0,
+                pbCurrentTX,
+                nCurrentTXLen,
+                pbTXSig,
+                pnTXSigLen,
+                (err, res) => {
+                    if (res == DLLRET.PAEW_RET_SUCCESS) {
+                        console.log("PAEW_CYB_TXSign completed");
+                        resolve(res);
+                    } else {
+                        console.log("PAEW_CYB_TXSign fails, res is:", DLLUTIL.ewallet_ret2string(res), " , err is:", err);
+                        reject(res);
+                    }
+                }
+            );
+        });
+        if (res == DLLRET.PAEW_RET_SUCCESS) {
+            signature = toHex(pbTXSig, pnTXSigLen.deref());
+        }
+
+        return {
+            result: res,
+            payload: signature
+        };
+
+    } catch (err) {
+        console.log("error catched: ", err);
+        return {
+            result: res,
+            payload: signature
+        };
+    } finally {
+        res = await new Promise((resolve, reject) => {
+            PAEW_FreeContext.async(ppPAEWContext.deref(), (err, res) => {
+                if (res == DLLRET.PAEW_RET_SUCCESS) {
+                    resolve(res);
+                } else {
+                    reject(res);
+                }
+            });
+        });
     }
 };
 
 const eosSignTest = async () => {
+    await CheckDeviceState();
     let unsignedData = ucharArray([(0x74), (0x09), (0x70), (0xd9), (0xff),
         (0x01), (0xb5), (0x04), (0x63), (0x2f),
         (0xed), (0xe1), (0xad), (0xc3), (0xdf),
@@ -603,9 +697,7 @@ const eosSignTest = async () => {
         (0x00), (0x00), (0x00), (0x00), (0x00),
         (0x00), (0x00)
     ])
-    console.log("test2222");
     let txSig = await EOSTXSign(
-        null,
         callbackFunc,
         callbackParam,
         [...wallet_conf.eos.derivePathPrefix, 0],
@@ -621,6 +713,7 @@ const eosSignTest = async () => {
 }
 
 const ethSignTest = async () => {
+    await CheckDeviceState();
     let unsignedData = ucharArray([0xec, 0x09, 0x85, 0x04, 0xa8,
         0x17, 0xc8, 0x00, 0x82, 0x52,
         0x08, 0x94, 0x35, 0x35, 0x35,
@@ -631,14 +724,10 @@ const ethSignTest = async () => {
         0xb6, 0xb3, 0xa7, 0x64, 0x00,
         0x00, 0x80, 0x01, 0x80, 0x80
     ])
-    console.log("test2222");
     let txSig = await ETHTXSign(
-        null,
         callbackFunc,
         callbackParam,
         [...wallet_conf.eth.derivePathPrefix, 0],
-        null,
-        18,
         new Buffer(unsignedData)
     );
     if (txSig.result != DLLRET.PAEW_RET_SUCCESS) {
@@ -650,9 +739,48 @@ const ethSignTest = async () => {
     console.log(txSig);
 }
 
+const cybSignTest = async () => {
+    await CheckDeviceState();
+    let unsignedData = ucharArray([(0x26), (0xe9), (0xbf), (0x22), (0x06),
+        (0xa1), (0xd1), (0x5c), (0x7e), (0x5b),
+        (0x01), (0x00), (0xe8), (0x03), (0x00),
+        (0x00), (0x00), (0x00), (0x00), (0x00),
+        (0x00), (0x80), (0xaf), (0x02), (0x80),
+        (0xaf), (0x02), (0x0a), (0x00), (0x00),
+        (0x00), (0x00), (0x00), (0x00), (0x00),
+        (0x00), (0x00), (0x01), (0x04), (0x0a),
+        (0x7a), (0x68), (0x61), (0x6e), (0x67),
+        (0x73), (0x79), (0x31), (0x33), (0x33),
+        (0x03), (0x43), (0x59), (0x42), (0x03),
+        (0x43), (0x59), (0x42), (0x05), (0x05),
+        (0x00)
+    ]);
+    let txSig = await CYBTXSign(
+        callbackFunc,
+        callbackParam,
+        [...wallet_conf.cyb.derivePathPrefix, 0],
+        new Buffer(unsignedData)
+    );
+    if (txSig.result != DLLRET.PAEW_RET_SUCCESS) {
+        return {
+            result: txSig.result,
+            payload: null
+        };
+    }
+    console.log(txSig);
+
+
+}
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+
 const test = async () => {
     await eosSignTest();
     await ethSignTest();
+    await cybSignTest();
 }
 
 test();

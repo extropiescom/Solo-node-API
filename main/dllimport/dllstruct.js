@@ -13,6 +13,8 @@ let { PAEW_DEV_INFO_SESSKEY_HASH_LEN } = DLLDEVINFO.SESSKEYHASH;
 const DLLTYPE = {};
 DLLTYPE.uint32Array = Array("uint32");
 DLLTYPE.ucharArray = Array("uchar");
+DLLTYPE.uint64Array = Array("uint64");
+DLLTYPE.strArray = Array(DLLTYPE.ucharArray);
 DLLTYPE.voidPP = ref.refType(ref.refType(ref.types.void));
 /*
 typedef struct _callback_data_addr_get
